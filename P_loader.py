@@ -1,11 +1,12 @@
 import torch.utils.data as data
 
-
+from PIL import Image
 import os
 import os.path
-import scipy.io as sio
+import numpy as np
+import pdb
 
-IMG_EXTENSIONS = ['.mat']
+IMG_EXTENSIONS = ['.png','.gz']
 
 
 def is_image_file(filename):
@@ -50,7 +51,14 @@ def make_dataset(dir, class_to_idx):
 
 
 def default_loader(path):
-    return sio.loadmat(path)['features']
+    return Image.open(path)
+    # return sio.loadmat(path)['features']
+
+
+def G_z_loader(path):
+    result = np.loadtxt(path)
+    # pdb.set_trace()
+    return result
 
 
 class P_loader(data.Dataset):
@@ -103,9 +111,13 @@ class P_loader(data.Dataset):
             tuple: (image, target) where target is class_index of the target class.
         """
         path, target = self.imgs[index]
-        img = self.loader(path)
+        if self.transform != None:
+            img = self.transform(self.loader(path))
+        else:
+            img = self.loader(path)
 
         return img, target
 
     def __len__(self):
         return len(self.imgs)
+
