@@ -7,10 +7,15 @@ from numba import cuda
 import P_loader
 import pdb
 from models_64x64 import Generator
+import torchvision
 from torchvision import transforms
 import pyOMT_utils as ut
 import numpy as np
 import os
+from glob import glob
+from torch import nn
+import torch.optim as optim
+from PIL import Image
 
 #!add cuda array interface to torch.Tensor object
 def torch_cuda_array_interface(tensor):
@@ -59,8 +64,8 @@ class pyOMT_simple():
 	def __init__ (self, input_P, d_G_model, numP, dim_y, dim_z, maxIter, lr, bat_size_P, bat_size_n):
 		self.dataset = P_loader.P_loader(root=input_P,transform=transforms.ToTensor())
 		self.dataloader = DataLoader(self.dataset, batch_size=bat_size_P, shuffle=False, pin_memory=True, drop_last=True, num_workers = 8)
-		self.G_set = P_loader.P_loader(root='./data/G_z',loader=P_loader.G_z_loader)
-		self.G_loader = DataLoader(self.G_set, batch_size=bat_size_n//500, shuffle=False, drop_last=True, num_workers = 8)
+		# self.G_set = P_loader.P_loader(root='./data/G_z',loader=P_loader.G_z_loader)
+		# self.G_loader = DataLoader(self.G_set, batch_size=bat_size_n//500, shuffle=False, drop_last=True, num_workers = 8)
 		self.d_G_model = d_G_model
 		self.numP = numP
 		self.dim_z = dim_z
@@ -215,29 +220,103 @@ class pyOMT_simple():
 
 			steps += 1
 
-			
+
+	def set_h(self, h_tensor):
+		self.d_h.copy_(h_tensor)
+
+
+	def T_map(self, x):
+		numX = x.shape[0]
+		x = x.view(numX,-1)
+		result_id = torch.empty([numX], dtype=torch.long, device=torch.device('cuda'))
+		result = torch.empty([numX, dim_y], dtype=torch.float, device=torch.device('cuda'))
+		for ii in range(numX//500 + 1):			
+			x_bat = x[ii*500 : min((ii+1)*500, numX)]
+			tot_ind_val = torch.empty([x_bat.shape[0]],dtype=torch.float, device=torch.device('cuda'))
+			tot_ind_val.fill_(-1e30)
+			tot_ind = torch.empty([x_bat.shape[0]],dtype=torch.long, device=torch.device('cuda'))
+			tot_ind.fill_(-1)
+			ind_val_argmax = torch.empty([x_bat.shape[0]],dtype=torch.long, device=torch.device('cuda'))
+			ind_val_argmax.fill_(-1)
+
+			data_iter = iter(self.dataloader)
+			i = 0
+			while i < len(self.dataloader):
+				temp_P,_ = data_iter.next()
+				temp_P = temp_P.view(temp_P.shape[0],-1)	
+				
+				'''U=PX+H'''
+				self.d_temp_h = self.d_h[i*self.bat_size_P:(i+1)*self.bat_size_P]
+				self.d_temp_P.copy_(temp_P)
+				U = torch.mm(self.d_temp_P,x_bat.t())
+				U = torch.add(U,self.d_temp_h.expand([x_bat.shape[0],-1]).t())
+				'''compute max'''
+				ind_val, ind = torch.max(U,0)
+				curr_result = self.d_temp_P[ind]
+
+				ind.add_(i*self.bat_size_P)
+				
+				torch.max(torch.stack((tot_ind_val,ind_val)),0,out=(tot_ind_val,ind_val_argmax))
+				tot_ind = torch.stack((tot_ind,ind))[ind_val_argmax, torch.arange(x_bat.shape[0])] 
+
+				
+				result[ii*500 : min((ii+1)*500, numX)] = torch.cat(
+					(result[ii*500 : min((ii+1)*500, numX)],curr_result), dim=0)[
+					ind_val_argmax * x_bat.shape[0] + torch.arange(x_bat.shape[0]).cuda()]
+				i+=1
+			result_id[ii*500 : min((ii+1)*500, numX)] = tot_ind
+		return result, result_id
+
+
+
+
+def load_last_model(model):
+    models = glob('./models/*.pth')
+    model_ids = [(int(f.split('_')[1]), f) for f in models]
+    if not model_ids:
+        start_epoch = 0
+        last_cp = 0
+        return start_epoch, last_cp
+    else:
+        start_epoch, last_cp = max(model_ids, key=lambda item:item[0])
+        print('Last checkpoint: ', last_cp)
+        model.load_state_dict(torch.load(last_cp))
+        return start_epoch, last_cp
+
+
 if __name__ == '__main__':
 	'''tasks'''	
 	write_G_z = False
-	train_omt = True
+	train_omt = False
+	train_G = True
 
-	'''args'''
+
+	'''args for omt'''
 	data_root = './data/sample_celebA_9000'	
 	if write_G_z:
 		G_z_root = './data/G_z'
 	numP = 9000
-	dim_y = 64*64*3
+	im_w = 64
+	im_h = 64
+	im_c = 3
+	dim_y = im_c*im_h*im_w
 	dim_z = 100
 	maxIter = 60000
 	lr = 1e-1
 	bat_size_P = 4500
 	bat_size_n = 500
 
+
+	'''args for training G model'''
+	train_bat_size = 100
+	train_num_z = 9000
+	train_lr = 1e-5
+	epochs = 10000
+	last_h = './h/1674.pt'
+
+
 	'''model initialization'''
-	g_model = Generator(dim_z).cuda()
-	for param in g_model.parameters():
-		param.requires_grad = False
-	g_model.init_param()
+	g_model = Generator(dim_z).cuda()	
 	p_s = pyOMT_simple(data_root,g_model,numP,dim_y,dim_z,maxIter,lr,bat_size_P,bat_size_n)
 
 	'''perform calculations'''
@@ -253,9 +332,95 @@ if __name__ == '__main__':
 
 
 	if train_omt:
-		if not os.path.isfile('./models/initial_g_model.pth'):
-			torch.save(g_model.state_dict(), './models/initial_g_model.pth')
+		for param in g_model.parameters():
+			param.requires_grad = False
+		if not os.path.isfile('./models/Epoch_0_initial_g_model.pth'):
+			g_model.init_param()
+			torch.save(g_model.state_dict(), './models/Epoch_0_initial_g_model.pth')
 		else:
-			g_model.load_state_dict(torch.load('./models/initial_g_model.pth'))
+			g_model.load_state_dict(torch.load('./models/Epoch_0_initial_g_model.pth'))
 		p_s.run_gd()
 	
+	if train_G:
+		'''load model'''
+		start_epoch, _ = load_last_model(g_model)
+		'''load h'''
+		h = torch.load(last_h)
+		p_s.set_h(h)
+		'''set loss funciton'''
+		optimizer = optim.Adam(g_model.parameters(), lr=train_lr)
+
+		'''compute target P in prior'''		
+		tot_p_files = [x[0] for x in p_s.dataset.imgs]
+		tot_p_id = torch.empty([train_num_z], dtype=torch.long, device=torch.device('cuda'))
+		print('Preparing P...')		
+		for ii in range(train_num_z//train_bat_size):
+			'''generate z'''
+			z = torch.empty([train_bat_size*dim_z], dtype=torch.float, device=torch.device('cuda'))
+			d_z_cuda = cuda.as_cuda_array(z)
+			qrng = rand.QRNG(rndtype=rand.QRNG.SOBOL32, ndim=dim_z, offset=ii*train_bat_size)
+			qrng.generate(d_z_cuda)
+			'''compute y'''
+			z.requires_grad_()
+			y = g_model(z.view(dim_z,train_bat_size).t())
+			y = y.view(y.shape[0],-1)
+			'''get corresponding p'''
+			p, p_id = p_s.T_map(y.detach())
+			tot_p_id[ii*train_bat_size : ii*train_bat_size+y.shape[0]] = p_id
+			ut.progbar(ii+1,train_num_z//train_bat_size, 20)
+		print('')
+
+		'''training'''
+		for epoch in range(start_epoch + 1, start_epoch + epochs + 1):
+			train_loss = 0
+			rand_perm = np.random.permutation(train_num_z//train_bat_size)
+			ii = 0
+			while ii < train_num_z//train_bat_size:
+				'''generate z'''
+				z = torch.empty([train_bat_size*dim_z], dtype=torch.float, device=torch.device('cuda'))
+				d_z_cuda = cuda.as_cuda_array(z)
+				qrng = rand.QRNG(rndtype=rand.QRNG.SOBOL32, ndim=dim_z, offset=rand_perm[ii]*train_bat_size)				
+				qrng.generate(d_z_cuda)
+
+				'''zero parameter grads'''
+				optimizer.zero_grad()
+
+				'''compute y'''
+				z.requires_grad_()
+				y = g_model(z.view(dim_z,train_bat_size).t())
+				y = y.view(y.shape[0],-1)
+
+				'''get corresponding p'''				
+				start = torch.tensor(rand_perm[ii].item()*train_bat_size, dtype=torch.long, device=torch.device('cuda'))
+				length = torch.tensor(train_bat_size, dtype=torch.long, device=torch.device('cuda'))
+				# p_id = tot_p_id[rand_perm[ii].item()*train_bat_size:(rand_perm[ii].item()+1)*train_bat_size]				
+				p_id = torch.narrow(tot_p_id, 0, start, length)
+				p_files = [tot_p_files[ind] for ind in p_id]
+				p = torch.empty([y.shape[0],dim_y], dtype=torch.float, device=torch.device('cuda'))
+				for i in range(len(p_files)):
+					p[i] = (transforms.ToTensor()(Image.open(p_files[i]))).view(1,-1).cuda()
+				
+				'''compute loss'''				
+				# loss = torch.sum(torch.sum(-torch.mm(p,y.t()),dim=1))
+				loss = torch.nn.MSELoss()(y,p)
+
+				'''back propogate'''				
+				loss.backward()
+				train_loss += loss.cpu().data.numpy()
+				optimizer.step()
+				'''show progress'''				
+				print('Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
+                epoch, ii, train_num_z//train_bat_size,
+                100. * ii / (train_num_z//train_bat_size), loss.cpu().data / train_bat_size))
+
+				ii+= 1
+				
+			'''print'''
+			print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, train_loss / train_num_z))
+			'''save result'''
+			# pdb.set_trace()
+			p = p.view(p.shape[0], im_c, im_h, im_w)
+			torchvision.utils.save_image(p.cpu().data[:16], './imgs/input_{}.png'.format(epoch), nrow = 4)
+			y = y.view(y.shape[0], im_c, im_h, im_w)
+			torchvision.utils.save_image(y.cpu().data[:16], './imgs/output_{}.png'.format(epoch), nrow = 4)
+			torch.save(g_model.state_dict(), './models/Epoch_{}_Train_loss_{:.4f}.pth'.format(epoch, train_loss))
