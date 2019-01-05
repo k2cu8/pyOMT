@@ -6,7 +6,11 @@ from pyculib import rand
 from numba import cuda
 import P_loader
 import pdb
-from models_64x64 import Generator
+
+# from models_64x64 import Generator
+# from AE_gen import AE_gen
+from dcgan import DCGAN_G
+
 import torchvision
 from torchvision import transforms
 import pyOMT_utils as ut
@@ -62,7 +66,10 @@ torch.Tensor.__cuda_array_interface__ = property(torch_cuda_array_interface)
 #!input_P: input file list of P
 class pyOMT_simple():	
 	def __init__ (self, input_P, d_G_model, numP, dim_y, dim_z, maxIter, lr, bat_size_P, bat_size_n):
-		self.dataset = P_loader.P_loader(root=input_P,transform=transforms.ToTensor())
+		self.dataset = P_loader.P_loader(root=input_P,transform=torchvision.transforms.Compose([
+			torchvision.transforms.ToTensor(),
+			torchvision.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+			]))
 		self.dataloader = DataLoader(self.dataset, batch_size=bat_size_P, shuffle=False, pin_memory=True, drop_last=True, num_workers = 8)
 		# self.G_set = P_loader.P_loader(root='./data/G_z',loader=P_loader.G_z_loader)
 		# self.G_loader = DataLoader(self.G_set, batch_size=bat_size_n//500, shuffle=False, drop_last=True, num_workers = 8)
@@ -75,11 +82,11 @@ class pyOMT_simple():
 		self.bat_size_P = bat_size_P
 		self.bat_size_n = bat_size_n
 
-		if numP % bat_size_P != 0:
-			sys.exit('Error: (numP) is not a multiple of (bat_size_P)')
+		# if numP % bat_size_P != 0:
+		# 	sys.exit('Error: (numP) is not a multiple of (bat_size_P)')
 
-		if bat_size_n % 500 != 0:
-			sys.exit('Error: (bat_size_n) must be a multiple of 500')
+		# if bat_size_n % 500 != 0:
+		# 	sys.exit('Error: (bat_size_n) must be a multiple of 500')
 		self.num_bat_P = numP // bat_size_P
 		#!internal variables
 		self.d_z = torch.empty(self.bat_size_n*self.dim_z, dtype=torch.float, device=torch.device('cuda'))
@@ -124,6 +131,7 @@ class pyOMT_simple():
 		qrng.generate(d_z_cuda)
 		self.d_volP = self.d_G_model(self.d_z.view(self.dim_z,self.bat_size_n).t())
 		self.d_volP = self.d_volP.view(self.d_volP.shape[0],-1)
+		# pdb.set_trace()
 
 		# G_z_iter = iter(self.G_loader)
 		# temp_G_z,_ = G_z_iter.next()
@@ -176,11 +184,15 @@ class pyOMT_simple():
 
 	def run_gd(self, last_step=0):
 		g_ratio = 1e20
-		best_g_ratio = 1e20
+		best_g_norm = 1e20
 		curr_best_g_ratio = 1e20
 		steps = 0
 		count_bad = 0
-		dyn_num_bat_n = self.numP // self.bat_size_n
+		dyn_num_bat_n = 3
+		# pdb.set_trace()
+		h_file_list = []
+		m_file_list = []
+		v_file_list = []
 
 		while(steps <= self.maxIter):
 			self.d_g_sum.fill_(0.)
@@ -202,15 +214,29 @@ class pyOMT_simple():
 			print('[{0}/{1}] Max absolute error ratio: {2:.3f}. g norm: {3:.6f}. num zero: {4:d}'.format(
 				steps, self.maxIter, g_ratio, g_norm, num_zero))
 
-			if g_ratio < 1e-2 or num_zero == 0:
+			if g_ratio < 1e-2 or num_zero <= self.numP/2:
 				torch.save(self.d_h, './h_final.pt')
 				return
-			if g_ratio < best_g_ratio:
-				torch.save(self.d_h, './h/{}.pt'.format(steps+last_step))
-				torch.save(self.d_adam_m, './adam_m/{}.pt'.format(steps+last_step))
-				torch.save(self.d_adam_v, './adam_v/{}.pt'.format(steps+last_step))
-				best_g_ratio = g_ratio
-			if g_ratio < curr_best_g_ratio:
+
+
+			torch.save(self.d_h, './h/{}.pt'.format(steps+last_step))
+			torch.save(self.d_adam_m, './adam_m/{}.pt'.format(steps+last_step))
+			torch.save(self.d_adam_v, './adam_v/{}.pt'.format(steps+last_step))
+			h_file_list.append('./h/{}.pt'.format(steps+last_step))
+			m_file_list.append('./adam_m/{}.pt'.format(steps+last_step))
+			v_file_list.append('./adam_v/{}.pt'.format(steps+last_step))
+			if len(h_file_list)>5:
+				if os.path.exists(h_file_list[0]):
+					os.remove(h_file_list[0])
+				h_file_list.pop(0)
+				if os.path.exists(v_file_list[0]):
+					os.remove(v_file_list[0])
+				v_file_list.pop(0)
+				if os.path.exists(m_file_list[0]):
+					os.remove(m_file_list[0])
+				m_file_list.pop(0)
+
+			if g_ratio <= curr_best_g_ratio:
 				curr_best_g_ratio = g_ratio
 				count_bad = 0
 			else:
@@ -309,34 +335,29 @@ def train_omt():
 	g_model.eval()
 
 	'''load last trained model parameters and last omt parameters'''
-	if not os.path.isfile('./models/Epoch_0_initial_g_model.pth'):
-		g_model.init_param()
-		torch.save(g_model.state_dict(), './models/Epoch_0_initial_g_model.pth')
-	else:
-		# g_model.load_state_dict(torch.load('./models/Epoch_0_initial_g_model.pth'))
-		load_last_model(g_model)
-		h_id, h_file = load_last_file('./h', '.pt')
-		adam_m_id, m_file = load_last_file('./adam_m', '.pt')
-		adam_v_id, v_file = load_last_file('./adam_v', '.pt')
-		if h_id != None:
-			if h_id != adam_m_id or h_id!= adam_v_id:
-				sys.exit('Error: h, adam_m, adam_v file log does not match')
-			else:
-				last_step = h_id
-				p_s.set_h(torch.load(h_file))
-				p_s.set_adam_m(torch.load(m_file))
-				p_s.set_adam_v(torch.load(v_file))
+	load_last_model(g_model)
+	h_id, h_file = load_last_file('./h', '.pt')
+	adam_m_id, m_file = load_last_file('./adam_m', '.pt')
+	adam_v_id, v_file = load_last_file('./adam_v', '.pt')
+	if h_id != None:
+		if h_id != adam_m_id or h_id!= adam_v_id:
+			sys.exit('Error: h, adam_m, adam_v file log does not match')
+		else:
+			last_step = h_id
+			p_s.set_h(torch.load(h_file))
+			p_s.set_adam_m(torch.load(m_file))
+			p_s.set_adam_v(torch.load(v_file))
 
 	'''run gradient descent'''
 	p_s.run_gd(last_step=last_step)
 
-	ut.clear_folder('./adam_m')
-	ut.clear_folder('./adam_v')
 
 def train_G():
 	'''load model'''
 	start_epoch, _ = load_last_model(g_model)
 
+	'''list of saved models'''
+	list_model = []
 	'''unfreeze model parameters'''
 	for param in g_model.parameters():
 		param.requires_grad = True
@@ -346,9 +367,6 @@ def train_G():
 	# pdb.set_trace()
 	if last_h_id != None:
 		p_s.set_h(torch.load(last_h))	
-	elif os.path.isfile('./h_final.pt'):
-		h = torch.load('./h_final.pt')
-		p_s.set_h(h)
 	else:
 		sys.exit('Error: Cannot find h file on training G')
 
@@ -356,10 +374,10 @@ def train_G():
 	optimizer = optim.Adam(g_model.parameters(), lr=train_lr, betas=(0.5, 0.999))
 
 	'''compute target P in prior'''	
-	g_model.eval()	
 	tot_p_files = [x[0] for x in p_s.dataset.imgs]
 	tot_p_id = torch.empty([train_num_z], dtype=torch.long, device=torch.device('cuda'))
 	print('Preparing P...')		
+	g_model.eval()
 	for ii in range(train_num_z//train_bat_size):
 		'''generate z'''
 		z = torch.empty([train_bat_size*dim_z], dtype=torch.float, device=torch.device('cuda'))
@@ -379,8 +397,9 @@ def train_G():
 	'''training'''
 	sample_y = torch.empty([train_bat_size, dim_y], dtype=torch.float, device=torch.device('cuda'))
 	sample_p = torch.empty([train_bat_size, dim_y], dtype=torch.float, device=torch.device('cuda'))
-	set_sample = False
+	
 	for epoch in range(start_epoch + 1, start_epoch + epochs + 1):
+		set_sample = False
 		g_model.train()
 		train_loss = 0
 		rand_perm = np.random.permutation(train_num_z//train_bat_size)
@@ -396,10 +415,11 @@ def train_G():
 			optimizer.zero_grad()
 
 			'''compute y'''
-			z.requires_grad_()
+			# z.requires_grad_()
 			y = g_model(z.view(dim_z,train_bat_size).t())
 			y = y.view(y.shape[0],-1)
-			if not set_sample:
+			
+			if set_sample:
 				sample_y.copy_(y)
 
 			'''get corresponding p'''				
@@ -435,62 +455,79 @@ def train_G():
 		print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, train_loss / train_num_z))
 		'''save result'''
 		torch.save(g_model.state_dict(), './models/Epoch_{}_Train_loss_{:.4f}.pth'.format(epoch, train_loss))
-		
-		sample_p = sample_p.view(sample_p.shape[0], im_c, im_h, im_w)
-		torchvision.utils.save_image(sample_p.cpu().data, './imgs/input.png', nrow = 8)
+		list_model.append('./models/Epoch_{}_Train_loss_{:.4f}.pth'.format(epoch, train_loss))
+		while len(list_model) > 5:
+			if os.path.exists(list_model[0]):
+				os.remove(list_model[0])
+			list_model.pop(0)
+
+
+		torchvision.utils.save_image(
+			sample_p.view(sample_p.shape[0], im_c, im_h, im_w).cpu().data,
+			 './imgs/input.png', nrow = 8)
 
 		g_model.eval()
-		sample_y = sample_y.view(sample_y.shape[0], im_c, im_h, im_w)
-		torchvision.utils.save_image(sample_y.cpu().data, './imgs/output_{}.png'.format(epoch), nrow = 8)
+		torchvision.utils.save_image(
+			sample_y.view(sample_y.shape[0], im_c, im_h, im_w).cpu().data,
+			 './imgs/output_{}.png'.format(epoch), nrow = 8)
 
 		
 		
 
 if __name__ == '__main__':
 	'''tasks'''	
-	if_write_G_z = False
+	# if_write_G_z = False
 	if_train_omt = False
 	if_train_G = False
 	if_train_both = True
 
 
 	'''args for omt'''
-	data_root = './data/sample_celebA_9000'	
-	if if_write_G_z:
-		G_z_root = './data/G_z'
-	numP = 9000
+	data_root = './data/CelebA_crop_resize_64'	
+	# if if_write_G_z:
+	# 	G_z_root = './data/G_z'
+	numP = 36679
 	im_w = 64
 	im_h = 64
 	im_c = 3
 	dim_y = im_c*im_h*im_w
 	dim_z = 100
 	maxIter = 60000
-	lr = 1e-1
-	bat_size_P = 4500
-	bat_size_n = 500
+	lr = 5e-1
+	bat_size_P = 5321
+	bat_size_n = 2000
 
 
 	'''args for training G model'''
 	train_bat_size = 64
-	train_num_z = 64000
-	train_lr = 2e-4
-	epochs = 5
+	train_num_z = 10000
+	train_lr = 2e-5
+	epochs = 1000
 
 
 	'''model initialization'''
-	g_model = Generator(dim_z).cuda()	
+	# g_model = Generator(dim_z).cuda()	
+	# g_model = AE_gen(3, 128, 128, 100).cuda()
+	g_model = DCGAN_G(64,100,3,64,1).cuda()
+
 	p_s = pyOMT_simple(data_root,g_model,numP,dim_y,dim_z,maxIter,lr,bat_size_P,bat_size_n)
 
+	if len(os.listdir('./models')) == 0:
+		# pdb.set_trace()
+		# g_model.init_param()
+		g_model.apply(ut.weights_init)
+		torch.save(g_model.state_dict(), './models/Epoch_0_initial_g_model.pth')
+
 	'''perform calculations'''
-	if if_write_G_z:
-		for count in range(2000):
-			d_z = torch.empty(bat_size_n*dim_z, dtype=torch.float, device=torch.device('cuda'))
-			d_z_cuda = cuda.as_cuda_array(d_z)
-			qrng = rand.QRNG(rndtype=rand.QRNG.SOBOL32, ndim=dim_z, offset=count*bat_size_n)
-			qrng.generate(d_z_cuda)
-			d_volP = g_model(d_z.view(dim_z,bat_size_n).t())
-			d_volP = d_volP.view(d_volP.shape[0],-1)
-			np.savetxt(os.path.join(G_z_root,'{}_{}.gz'.format(bat_size_n, count)), d_volP.cpu().numpy())
+	# if if_write_G_z:
+	# 	for count in range(2000):
+	# 		d_z = torch.empty(bat_size_n*dim_z, dtype=torch.float, device=torch.device('cuda'))
+	# 		d_z_cuda = cuda.as_cuda_array(d_z)
+	# 		qrng = rand.QRNG(rndtype=rand.QRNG.SOBOL32, ndim=dim_z, offset=count*bat_size_n)
+	# 		qrng.generate(d_z_cuda)
+	# 		d_volP = g_model(d_z.view(dim_z,bat_size_n).t())
+	# 		d_volP = d_volP.view(d_volP.shape[0],-1)
+	# 		np.savetxt(os.path.join(G_z_root,'{}_{}.gz'.format(bat_size_n, count)), d_volP.cpu().numpy())
 
 
 	if if_train_omt:
@@ -500,7 +537,17 @@ if __name__ == '__main__':
 		train_G()
 
 	if if_train_both:
+		# count = 0
+		# while True:
+		# 	if count == 0:
+		# 		train_G()
+		# 	else:
+		# 		# pdb.set_trace()
+		# 		train_omt()
+		# 		train_G()
+		# 	count += 1
 		while True:
 			train_omt()
 			train_G()
+
 			

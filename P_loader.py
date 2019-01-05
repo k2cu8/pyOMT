@@ -6,7 +6,7 @@ import os.path
 import numpy as np
 import pdb
 
-IMG_EXTENSIONS = ['.png','.gz']
+IMG_EXTENSIONS = ['.png', '.jpg']
 
 
 def is_image_file(filename):
