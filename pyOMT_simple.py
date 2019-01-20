@@ -70,7 +70,7 @@ class pyOMT_simple():
 			torchvision.transforms.ToTensor(),
 			torchvision.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 			]))
-		self.dataloader = DataLoader(self.dataset, batch_size=bat_size_P, shuffle=False, pin_memory=True, drop_last=True, num_workers = 8)
+		self.dataloader = DataLoader(self.dataset, batch_size=bat_size_P, shuffle=False, pin_memory=True, drop_last=True, num_workers = 7)
 		# self.G_set = P_loader.P_loader(root='./data/G_z',loader=P_loader.G_z_loader)
 		# self.G_loader = DataLoader(self.G_set, batch_size=bat_size_n//500, shuffle=False, drop_last=True, num_workers = 8)
 		self.d_G_model = d_G_model
@@ -188,7 +188,7 @@ class pyOMT_simple():
 		curr_best_g_ratio = 1e20
 		steps = 0
 		count_bad = 0
-		dyn_num_bat_n = 3
+		dyn_num_bat_n = 6
 		# pdb.set_trace()
 		h_file_list = []
 		m_file_list = []
@@ -241,7 +241,7 @@ class pyOMT_simple():
 				count_bad = 0
 			else:
 				count_bad += 1
-			if count_bad > 20:
+			if count_bad > 8:
 				dyn_num_bat_n *= 2
 				print('bat_size_n has increased to {}'.format(dyn_num_bat_n*self.bat_size_n))
 				count_bad = 0
