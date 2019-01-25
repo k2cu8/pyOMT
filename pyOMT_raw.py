@@ -277,6 +277,9 @@ class pyOMT_raw():
 
 
 def load_last_file(path, file_ext):
+    if not os.path.exists(path):
+        os.makedirs(path)
+        return None, None
     files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
     file_ids = [(int(f.split('.')[0]), os.path.join(path,f)) for f in files]
     if not file_ids:
@@ -286,9 +289,8 @@ def load_last_file(path, file_ext):
         print('Last' + path + ': ', last_f_id)
         return last_f_id, last_f
 
-def train_omt(num_bat = 1):
+def train_omt(num_bat=1):
     last_step = 0
-
     '''load last trained model parameters and last omt parameters'''
     h_id, h_file = load_last_file('./h', '.pt')
     adam_m_id, m_file = load_last_file('./adam_m', '.pt')
@@ -296,7 +298,7 @@ def train_omt(num_bat = 1):
     if h_id != None:
         if h_id != adam_m_id or h_id!= adam_v_id:
             sys.exit('Error: h, adam_m, adam_v file log does not match')
-        else:
+        elif h_id != None and adam_m_id != None and adam_v_id != None:
             last_step = h_id
             p_s.set_h(torch.load(h_file))
             p_s.set_adam_m(torch.load(m_file))
@@ -328,16 +330,11 @@ def gen_P(numX, thresh):
     nm = torch.cat([P, -torch.ones(p_s.numP,1,dtype=torch.float64)], dim=1)
     nm /= torch.norm(nm,dim=1).view(-1,1)
     cs = torch.sum(nm[I_all[0,:],:] * nm[I_all[1,:],:], 1) #element-wise multiplication
-    # cs /= torch.norm(P[I_all[0,:],:], dim=1)
-    # cs /= torch.norm(P[I_all[1,:],:], dim=1)
     theta = torch.acos(cs)
     I_gen = I_all[:, theta < thresh]
     _, uni_gen_id = np.unique(I_gen.numpy(), return_index=True, axis=1)
     I_gen = I_gen[:, torch.from_numpy(uni_gen_id)]
     numGen = I_gen.shape[1]
-    
-    # axs[2].hist(theta.numpy(), bins=numX)
-    # I_gen = torch.t(I_gen) #transpose generate index to column major
     
     print('OT successfully generated {} samples'.format(numGen))
     rand_w = torch.rand([numGen,1],dtype=torch.float64)
@@ -345,22 +342,10 @@ def gen_P(numX, thresh):
     P_gen = torch.mul(P[I_gen[0,:],:], rand_w) + torch.mul(P[I_gen[1,:],:], 1-rand_w)
 
     fig2, ax2 = plt.subplots()
-    ax2.scatter(P[:,0], P[:,1], marker='+', color = 'orange', label='Real')
-    ax2.scatter(P_gen[:,0], P_gen[:,1], marker='+', color = 'green', label='Generated')
-    # ax2.set_title('8 Gaussians', fontsize=30)
-    # handles, labels = ax2.get_legend_handles_labels()
-    # ax2.legend(handles, labels)
+    ax2.scatter(P[:,0], P[:,1], marker='+', color='orange', label='Real')
+    ax2.scatter(P_gen[:,0], P_gen[:,1], marker='+', color='green', label='Generated')
     plt.show()
     
-    
-    # pdb.set_trace()
-
-
-
-
-
-
-
 
 if __name__ == '__main__':
     '''args for omt'''
@@ -382,8 +367,7 @@ if __name__ == '__main__':
     #use threshold 0.4 for 8 Gaussians
     gen_P(bat_size_n, 0.2)
     
-    #debugging 
-    np.savetxt('./d_volP.csv',p_s.d_volP.cpu().numpy(),delimiter=',')
+    
 
 
             
