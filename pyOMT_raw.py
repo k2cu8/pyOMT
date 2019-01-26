@@ -110,9 +110,10 @@ class pyOMT_raw():
     def pre_cal(self,count):
         '''prepare random feed w. qrnd'''
         d_y = cuda.as_cuda_array(self.d_G_z)
-        qrng = rand.QRNG(rndtype=rand.QRNG.SOBOL32, ndim=self.dim_y, offset=count*self.bat_size_n)
+        qrng = rand.QRNG(rndtype=rand.QRNG.SCRAMBLED_SOBOL32, ndim=self.dim_y, offset=count*self.bat_size_n)
         qrng.generate(d_y)
         self.d_volP.copy_(self.d_G_z.view(self.dim_y, self.bat_size_n).t())
+        self.d_volP.add_(-0.5)
         # self.d_volP.uniform_(-0.5,0.5)
 
 
@@ -289,7 +290,7 @@ def load_last_file(path, file_ext):
         print('Last' + path + ': ', last_f_id)
         return last_f_id, last_f
 
-def train_omt(num_bat=1):
+def train_omt(p_s, num_bat=1):
     last_step = 0
     '''load last trained model parameters and last omt parameters'''
     h_id, h_file = load_last_file('./h', '.pt')
@@ -310,7 +311,7 @@ def train_omt(num_bat=1):
     '''record result'''
     np.savetxt('./h_final.csv',p_s.d_h.cpu().numpy(), delimiter=',')
 
-def gen_P(numX, thresh):
+def gen_P(p_s, numX, thresh):
     I_all = torch.empty([2,numX], dtype=torch.long)
     num_bat_x = numX//p_s.bat_size_n
     for ii in range(num_bat_x):
@@ -360,12 +361,12 @@ if __name__ == '__main__':
 
     p_s = pyOMT_raw(h_P, numP, dim_y, maxIter, lr, bat_size_P, bat_size_n)
     '''train omt'''
-    train_omt(1)
+    train_omt(p_s, 1)
 
     '''generate new samples'''
     #use threshold 0.09 for Swissroll
     #use threshold 0.4 for 8 Gaussians
-    gen_P(bat_size_n, 0.2)
+    gen_P(p_s, bat_size_n, 0.2)
     
     
 
