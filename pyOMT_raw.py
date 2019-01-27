@@ -309,7 +309,7 @@ def train_omt(p_s, num_bat=1):
     p_s.run_gd(last_step=last_step, num_bat=num_bat)
 
     '''record result'''
-    np.savetxt('./h_final.csv',p_s.d_h.cpu().numpy(), delimiter=',')
+    # np.savetxt('./h_final.csv',p_s.d_h.cpu().numpy(), delimiter=',')
 
 def gen_P(p_s, numX, thresh):
     I_all = torch.empty([2,numX], dtype=torch.long)
