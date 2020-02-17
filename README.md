@@ -31,7 +31,7 @@ Code is developed in [PyTorch](https://pytorch.org/) for better integration with
   Results:
  ![8Gaussians](./figures/8gaussians.png)
  ![25Gaussians](./figures/25gaussians.png)
- ![SwissRoll](./figures/8gaussians.png)
+ ![SwissRoll](./figures/swissroll.png)
 
 * AE-OT model: a generic deep generative framework built on autoencoders.
  ![AEOT](./figures/AE-OT.png)
