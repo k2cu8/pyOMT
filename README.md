@@ -23,7 +23,7 @@ Code is developed in [PyTorch](https://pytorch.org/) for better integration with
 4. Matplotlib=3.1.0 (or above)
 
 ## Demos
-1. Generation examples on simple measures (i.e. toy sets).
+* Generation examples on simple measures (i.e. toy sets).
 
   Code:
   > python demo1.py
@@ -33,6 +33,6 @@ Code is developed in [PyTorch](https://pytorch.org/) for better integration with
  ![25Gaussians](./figures/25gaussians.png)
  ![SwissRoll](./figures/8gaussians.png)
 
-2. AE-OT model: a generic deep generative framework built on autoencoders.
+* AE-OT model: a generic deep generative framework built on autoencoders.
  ![AEOT](./figures/AE-OT.png)
 
