@@ -1,11 +1,10 @@
-h/
 __pycache__/
-data/
-WGAN-GP-DRAGAN-Celeba-Pytorch-master/
+.vscode/
 models/
 h/
 pushed_mu/
 adam_m/
 adam_v/
 imgs/
+figures/
 
