@@ -10,7 +10,7 @@ The Adaptive Monte Carlo Optimal Transport algorithm tackles potentially high-di
     author={Dongsheng An and Yang Guo and Na Lei and Zhongxuan Luo and Shing-Tung Yau and Xianfeng Gu},
     booktitle={International Conference on Learning Representations},
     year={2020},
-    url={https://openreview.net/forum?id=HkldyTNYwH}
+    url={[https://openreview.net/forum?id=HkldyTNYwH](https://openreview.net/pdf?id=HkldyTNYwH)}
     }
 
 ## Implementation
