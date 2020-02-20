@@ -37,7 +37,7 @@ Code is developed in [PyTorch](https://pytorch.org/) for better integration with
  ![25Gaussians](./figures/25gaussians.png)
  ![SwissRoll](./figures/swissroll.png)
 
-### AE-OT model: a generic deep generative framework.
+### Generation human face images with AE-OT framework.
   This demo shows the application of the adaptive Monte Carlo OT solver in image generation tasks. Dataset used here is the [*CelebA_crop_resize_64*](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html) dataset, which contains ~200,000 human face images of resolution 64x64. With the OT solver, infinitely many realistic face images can be generated. 
 
 * Model training and generating:
