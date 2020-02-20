@@ -35,5 +35,20 @@ Code is developed in [PyTorch](https://pytorch.org/) for better integration with
 
 * AE-OT model: a generic deep generative framework built on autoencoders.
  ![AEOT](./figures/AE-OT.png)
+  This demo shows the application of the adaptive Monte Carlo OT solver in image generation tasks. Dataset used here is the [*CelebA_crop_resize_64*](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html) dataset, which contains ~200,000 human face images of resolution 64x64. With the OT solver, infinitely many realistic face images can be generated. 
 
-  Code: (Upcoming)
+  Generated images:
+  ![celeba](./figures/gen_img_celeba.png)
+
+  Model training and generating:
+  > python demo2.py --data_root_train *path-to-your-training-dataset* --data_root_test *path-to-your-test-dataset*
+
+  Generating with pre-trained models:
+  
+  First, download the pre-trained models [here](https://drive.google.com/open?id=1gi9LmF83s3jGEPVPmo1KswFhB0wKv4Ke), and then extract the files to the "results" folder. 
+
+  To generate with pre-trained AE and OT models:
+  > python demo2.py --generate_feature --decode_feature --data_root_train *path-to-your-training-dataset* --data_root_test *path-to-your-test-dataset*
+
+  To train the OT solver and generate with pre-trained AE models:
+  > python demo2.py --train_ot --generate_feature --decode_feature --data_root_train *path-to-your-training-dataset* --data_root_test *path-to-your-test-dataset*
