@@ -23,32 +23,33 @@ Code is developed in [PyTorch](https://pytorch.org/) for better integration with
 4. Matplotlib=3.1.0 (or above)
 
 ## Demos
-* Generation examples on simple measures (i.e. toy sets).
+### Generation examples on simple measures (i.e. toy sets).
 
-  Code:
+  * Code:
   > python demo1.py
  
-  Results:
+  * Results:
  ![8Gaussians](./figures/8gaussians.png)
  ![25Gaussians](./figures/25gaussians.png)
  ![SwissRoll](./figures/swissroll.png)
 
-* AE-OT model: a generic deep generative framework built on autoencoders.
+### AE-OT model: a generic deep generative framework built on autoencoders.
  ![AEOT](./figures/AE-OT.png)
   This demo shows the application of the adaptive Monte Carlo OT solver in image generation tasks. Dataset used here is the [*CelebA_crop_resize_64*](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html) dataset, which contains ~200,000 human face images of resolution 64x64. With the OT solver, infinitely many realistic face images can be generated. 
 
-  Generated images:
-  ![celeba](./figures/gen_img_celeba.png)
 
-  Model training and generating:
+  * Model training and generating:
   > python demo2.py --data_root_train *path-to-your-training-dataset* --data_root_test *path-to-your-test-dataset*
 
-  Generating with pre-trained models:
+  * Generating with pre-trained models:
   
-  First, download the pre-trained models [here](https://drive.google.com/open?id=1gi9LmF83s3jGEPVPmo1KswFhB0wKv4Ke), and then extract the files to the "results" folder. 
+  Download the pre-trained models [here](https://drive.google.com/open?id=1gi9LmF83s3jGEPVPmo1KswFhB0wKv4Ke), extract the files to the "results" folder, and
 
-  To generate with pre-trained AE and OT models:
   > python demo2.py --generate_feature --decode_feature --data_root_train *path-to-your-training-dataset* --data_root_test *path-to-your-test-dataset*
 
-  To train the OT solver and generate with pre-trained AE models:
+  OR if you want to only use the pre-trained AE model and compute the OT solver yourself:
   > python demo2.py --train_ot --generate_feature --decode_feature --data_root_train *path-to-your-training-dataset* --data_root_test *path-to-your-test-dataset*
+
+  * Generated images:
+
+  ![celeba](./figures/gen_img_celeba.png)
