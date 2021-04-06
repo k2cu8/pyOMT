@@ -3,6 +3,7 @@ import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import pdb
 
 class pyOMT_raw():	
     '''This class is designed to compute the semi-discrete Optimal Transport (OT) problem. 

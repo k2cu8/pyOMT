@@ -101,7 +101,7 @@ def compute_ot(input_P, output_h, output_P_gen, mode='train', thresh=0.7, topk=2
     if not TRAIN:
         maxIter = 0
     '''args for generation'''
-    num_gen_x = 10000 #a multiple of bat_size_n
+    num_gen_x = 20000 #a multiple of bat_size_n
 
 
     #crop h_P to fit bat_size_P
@@ -125,6 +125,7 @@ if __name__ == "__main__":
     '''Arg parser'''
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_ae", help="whether to train AE", dest='actions', action='append_const', const='train_ae')
+    parser.add_argument("--refine_ae", help="whether to refine AE", dest='actions', action='append_const', const='refine_ae')
     parser.add_argument("--extract_feature", help="whether to extract latent code with AE encoder", dest='actions', action='append_const', const='extract_feature')
     parser.add_argument("--train_ot", help="whether to train (i.e. compute) OT with OT solver", dest='actions', action='append_const', const='train_ot')
     parser.add_argument("--generate_feature", help="whether to generate new latent codes", dest='actions', action='append_const', const='generate_feature')
@@ -136,7 +137,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.actions is None:
-        actions = ['train_ae', 'extract_feature', 'train_ot', 'generate_feature', 'decode_feature']
+        actions = ['train_ae', 'refine_ae', 'extract_feature', 'train_ot', 'generate_feature', 'decode_feature']
     else:
         actions = args.actions
 
@@ -144,7 +145,7 @@ if __name__ == "__main__":
     RESUME = True #toggles of whether to resume training
     num_epochs = 500 #max number of epochs for AE to train
     batch_size = 512 #batch size of AE training
-    learning_rate = 1e-3 #learning rate of AE training
+    learning_rate = 2e-5 #learning rate of AE training
     dim_z = 100 #latent space dimension
     dim_c = 3 #input image number of channels
     dim_f = 80 #number of features in first layer of AE
@@ -153,7 +154,7 @@ if __name__ == "__main__":
     test_path = args.data_root_test #path to your testing data folder (for AE)
 
     '''Generation args'''
-    max_gen_samples = 500 #max number of generated samples. Used to avoid out of memory error.
+    max_gen_samples = 50000 #max number of generated samples. Used to avoid out of memory error.
     angle_threshold = 0.7 #angle threshold of OT generator ranging from [0,1]. See paper for details.
     rec_gen_distance = 0.75 #dis-similarity between reconstructed samples and generated samples, ranging from [0,1] with smaller meaning more similar
     
@@ -252,6 +253,80 @@ if __name__ == "__main__":
                 if fnmatch.fnmatch(file, 'Epoch_*_sim_autoencoder*.pth'):
                     model.load_state_dict(torch.load(os.path.join(model_load_path, file)))
 
+        if action == 'refine_ae':
+            for param in model.block1.parameters():
+                param.requires_grad = False
+            for param in model.block2.parameters():
+                param.requires_grad = False
+            for param in model.block3.parameters():
+                param.requires_grad = False
+            for param in model.block4.parameters():
+                param.requires_grad = False
+            for param in model.block5.parameters():
+                param.requires_grad = False
+
+            for test_data in testloader:
+                test_img, _, _ = test_data
+                break
+            if RESUME:
+                for file in os.listdir(model_path):
+                    if fnmatch.fnmatch(file, 'Epoch_*_sim_autoencoder*.pth'):
+                        model.load_state_dict(torch.load(os.path.join(model_path, file)))
+
+            criterion = nn.MSELoss()
+            optimizer = torch.optim.Adam(
+                model.parameters(), lr=learning_rate)
+
+            #save input test image
+            save_image(test_img[:64], os.path.join(img_save_path, 'test_image_input.png'))
+            for epoch in range(num_epochs):
+                count_train = 0
+                loss_train = 0.0
+                count_test = 0
+                loss_test = 0.0
+                for data in dataloader:
+                    img, _, _ = data
+                    img = Variable(img).cuda()
+                    # ===================forward=====================
+                    output, z = model(img)
+                    loss = criterion(output, img)
+                    # loss2 = torch.norm(z, 1)
+                    # loss = loss1 + lmda * loss2
+                    # ===================backward====================
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                # ===================log========================
+                    print('epoch [{}/{}], loss:{:.4f}'
+                        .format(epoch, num_epochs, loss.item()))
+                    loss_train += loss.item()
+                    count_train += 1
+
+                # for data in testloader:
+                #     img, _, _ = data
+                #     img = Variable(img).cuda()
+                #     output, _ = model(img)
+                #     loss = criterion(output, img)
+                #     loss_test += loss.item()
+                #     count_test += 1
+
+                loss_train /= count_train
+                # loss_test /= count_test
+                loss_test = 0
+                out, _ = model(test_img.cuda())
+                pic = out.data.cpu()
+                save_image(pic[:64], os.path.join(img_save_path, 'Epoch_{}_test_image_{:04f}_{:04f}.png'.format(epoch, loss_train, loss_test)))
+
+                torch.save(model.state_dict(), os.path.join(model_path,'Epoch_{}_sim_refine_autoencoder_{:04f}_{:04f}.pth'.format(epoch, loss_train, loss_test)))
+        else:
+            model_load_path = selected_model_path
+            if (not os.path.exists(selected_model_path)) or len(os.listdir(selected_model_path)) == 0:
+                model_load_path = model_path
+            for file in os.listdir(model_load_path):
+                if fnmatch.fnmatch(file, 'Epoch_*_sim_autoencoder*.pth'):
+                    model.load_state_dict(torch.load(os.path.join(model_load_path, file)))
+
+
         if action == 'extract_feature':
             dataloader_stable = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=True, num_workers=4)
             features = torch.empty([len(dataset), dim_z], dtype=torch.float, requires_grad=False, device='cpu')
@@ -286,23 +361,26 @@ if __name__ == "__main__":
 
             
         if action == 'decode_feature':
+            for file in os.listdir(model_path):
+                if fnmatch.fnmatch(file, 'Epoch_*_sim_refine_autoencoder*.pth'):
+                    model.load_state_dict(torch.load(os.path.join(model_path, file)))
             feature_dict = sio.loadmat(gen_feature_path)
             features = feature_dict['features']
             ids = feature_dict['ids']
             
             num_feature = features.shape[0]
-            num_ids = ids.size
+            num_ids = num_feature
             z = torch.from_numpy(features).cuda()
             z = z.view(num_feature,-1,1,1)
             with torch.no_grad():
                 y = model.decoder(z)
-
+            
             #=====================generate reconstructed-generated image pairs===========
             for i in range(num_ids):
-                pic_ori = dataset[ids[0, i]][0]            
-                save_image(pic_ori, os.path.join(gen_im_pair_path, 'img_{0:03d}_ori.png'.format(i)))
-                y_rec = y[i + num_ids,:,:,:]
-                save_image(y_rec.cpu(), os.path.join(gen_im_pair_path, 'img_{0:03d}_rec.png'.format(i)))
+                # pic_ori = dataset[ids[0, i]][0]            
+                # save_image(pic_ori, os.path.join(gen_im_pair_path, 'img_{0:03d}_ori.png'.format(i)))
+                # y_rec = y[i + num_ids,:,:,:]
+                # save_image(y_rec.cpu(), os.path.join(gen_im_pair_path, 'img_{0:03d}_rec.png'.format(i)))
                 y_gen = y[i,:,:,:]
                 save_image(y_gen.cpu(), os.path.join(gen_im_pair_path, 'img_{0:03d}_gen.png'.format(i)))
                 
