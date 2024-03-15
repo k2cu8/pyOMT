@@ -42,7 +42,65 @@ def gen_P(p_s, numX, thresh=1, dataset_name=None):
         plt.show()
     
     return P_gen
-    
+
+
+def gen_P_v2(p_s, numX, thresh=1, dataset_name=None):
+    if p_s.num_P != p_s.bat_size_P:
+        sys.exit("Error: (num_p) is not equal to (batch_size_P), this method could generate points correctly.")
+    if numX % p_s.bat_size_n != 0:
+        sys.exit('Error: (numX) is not a multiple of (p_s.bat_size_n)')
+    # calculate mu-mass center
+    p_s.pre_cal(0)
+    p_s.cal_measure(True)
+    # generate points
+    S_all = torch.empty([numX, p_s.dim], dtype=torch.float, device=torch.device('cuda'))
+    I_all = torch.empty([p_s.dim + 1, numX], dtype=torch.long)
+    is_generate = torch.ones(numX, dtype=torch.bool)
+    num_bat_x = numX // p_s.bat_size_n
+    for ii in range(num_bat_x):
+        p_s.pre_cal(ii)
+        S_all[ii * p_s.bat_size_n:(ii + 1) * p_s.bat_size_n, :].copy_(p_s.d_volP)
+        p_s.cal_measure()  
+        _, I = torch.sort(p_s.d_U, dim=0, descending=True)  
+        for iii in range(p_s.dim + 1):
+            I_all[iii, ii * p_s.bat_size_n:(ii + 1) * p_s.bat_size_n].copy_(I[iii, :])
+    C = p_s.d_c
+    P = p_s.h_P
+    nm = torch.cat([P, -torch.ones(p_s.num_P, 1, dtype=torch.float64)], dim=1)
+    nm /= torch.norm(nm, dim=1).view(-1, 1)  # shape: (num_p, 1)
+    for i_generate in range(p_s.dim):
+        cs = torch.sum(nm[I_all[0, :], :] * nm[I_all[i_generate + 1, :], :], 1)
+        theta = torch.acos(cs)
+        is_generate &= (theta < thresh)
+    S_gen = S_all[is_generate, :]
+    I_gen = I_all[:, is_generate]
+    P_gen = torch.empty(size=S_gen.shape, dtype=torch.float)
+    lbd_gen = torch.empty(size=I_gen.shape, dtype=torch.float)
+
+    numGen = I_gen.shape[1]
+    print('OT successfully generated {} samples'.format(numGen))
+
+    for i_lbd in range(p_s.dim + 1):
+        temp_c = C[I_gen[i_lbd, :], :]
+        temp_lbd = 1.0 / torch.norm(S_gen - temp_c, dim=1, keepdim=True)
+        lbd_gen[i_lbd:i_lbd + 1, :].copy_(temp_lbd.t())
+    lbd_gen /= torch.sum(lbd_gen, dim=0, keepdim=True)
+    for i_p in range(p_s.dim + 1):
+        P_gen += torch.mul(P[I_gen[i_p, :], :], lbd_gen[i_p:i_p + 1, :].t())
+
+    if p_s.dim == 2:
+        fig2, ax2 = plt.subplots(1, 2, sharey=True, figsize=(14, 7))
+        fig2.suptitle('Dataset ' + dataset_name, fontsize=16)
+        ax2[0].scatter(P[:, 0], P[:, 1], marker='+', color='orange', label='Real')
+        ax2[0].set_title('Groud-truth samples')
+        ax2[0].axis('equal')
+        ax2[1].scatter(P[:, 0], P[:, 1], marker='+', color='orange', label='Real')
+        ax2[1].scatter(P_gen[:, 0], P_gen[:, 1], marker='+', color='green', label='Generated')
+        ax2[1].set_title('Generated samples')
+        ax2[1].axis('equal')
+        plt.show()
+
+    return P_gen
 
 if __name__ == '__main__':
     dataset_names = ['25gaussians','8gaussians','swissroll']
@@ -72,7 +130,7 @@ if __name__ == '__main__':
         train_omt(p_s, 1)
 
         '''generate new samples'''
-        gen_P(p_s, bat_size_n, thresh, dataset_name)
+        gen_P_v2(p_s, bat_size_n, thresh, dataset_name)
 
         '''clear temporaty files'''
         clear_temp_data()

@@ -62,6 +62,10 @@ class pyOMT_raw():
         self.d_temp_h = torch.empty(self.bat_size_P, dtype=torch.float, device=torch.device('cuda'))
         self.d_temp_P = torch.empty((self.bat_size_P, self.dim), dtype=torch.float, device=torch.device('cuda'))
 
+        #!extension map variables
+        self.d_c = torch.zeros((self.num_P, self.dim), dtype=torch.float, device=torch.device('cuda'))
+        self.d_num_cs = torch.zeros(self.num_P, dtype=torch.float, device=torch.device('cuda'))
+
         #!random number generator
         self.qrng = torch.quasirandom.SobolEngine(dimension=self.dim)
 
@@ -79,7 +83,7 @@ class pyOMT_raw():
         self.qrng.draw(self.bat_size_n,out=self.d_volP)
         self.d_volP.add_(-0.5)
 
-    def cal_measure(self):
+    def cal_measure(self, cal_c=False):
         '''Calculate the pushed-forward measure of current step. 
         '''
         self.d_tot_ind_val.fill_(-1e30)
@@ -107,6 +111,11 @@ class pyOMT_raw():
         '''calculate histogram'''
         self.d_g.copy_(torch.bincount(self.d_tot_ind, minlength=self.num_P))
         self.d_g.div_(self.bat_size_n)
+        
+        if cal_c == True:
+            self.d_num_cs.copy_(torch.bincount(self.d_tot_ind, minlength=self.num_P))
+            self.d_c.index_add_(0, self.d_tot_ind, self.d_volP)
+            self.d_c.div_(self.d_num_cs.reshape(-1, 1))
         
 
     def update_h(self):
